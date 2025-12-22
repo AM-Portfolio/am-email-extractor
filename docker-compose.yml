@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  gmail-extractor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gmail-extractor-api
+    restart: unless-stopped
+
+    # Internal port mapping - expose to other containers
+    ports:
+      - "8080:8080" # Remove this line if using internal network only
+
+    # Environment variables
+    environment:
+      - FLASK_ENV=production
+      - PORT=8080
+
+    # Load sensitive env vars from .env file
+    env_file:
+      - .env
+
+    # Volumes for persistent storage
+    volumes:
+      - ./user_tokens:/app/user_tokens
+      - ./logs:/app/logs
+
+    # Network configuration
+    networks:
+      - app-network
+
+    # Health check
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v1/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  app-network:
+    driver: bridge
+    # If integrating with existing network (e.g., with main backend)
+    # external: true
+    # name: munish-network

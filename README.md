@@ -1,161 +1,192 @@
-# Email Extractor - Broker Portfolio Holdings
+# Gmail Extractor API
 
-A Flask web application that extracts portfolio holdings from various stock brokers' statements. Supports both manual file upload and automatic extraction from Gmail.
+A microservice API for extracting portfolio holdings from broker statements via Gmail or file upload. Supports Groww, Zerodha, AngelOne, Dhan, and Mstock.
 
-## Supported Brokers
+## 🚀 Quick Start
 
-- **Groww** - PDF statements
-- **Zerodha** - PDF statements  
-- **AngleOne** - Excel statements
-- **Dhan** - PDF statements
-- **MSTOCK** - PDF statements
-
-## Features
-
-- 📧 **Gmail Integration** - Automatically fetch latest statements from Gmail
-- 📁 **Manual Upload** - Upload PDF/Excel statements manually
-- 🔐 **Secure Authentication** - Google OAuth 2.0 for Gmail access
-- 👥 **Multi-user Support** - Session-based authentication
-- 📊 **JSON Export** - Download extracted holdings as JSON
-
-## Quick Start
-
-### 1. Clone the Repository
-
+### 1. Configure Environment
 ```bash
-git clone <repository-url>
-cd am-email-extractor
+cp .env.example .env
+# Edit .env with your credentials
 ```
 
-### 2. Install Dependencies
+Required variables:
+- `GOOGLE_CLIENT_ID` - Google OAuth client ID
+- `GOOGLE_CLIENT_SECRET` - Google OAuth secret
+- `JWT_SECRET` - **Must match your main backend** (api.munish.org)
+- `ALLOWED_ORIGINS` - Flutter app URL (http://localhost:3000)
 
+### 2. Run with Docker Compose
+```bash
+docker-compose up -d
+```
+
+### 3. Test Health Endpoint
+```bash
+curl http://localhost:8080/api/v1/health
+```
+
+---
+
+## 📡 API Endpoints
+
+Base URL: `http://localhost:8080/api/v1`
+
+### Health & Info
+- `GET /health` - Health check (no auth)
+- `GET /brokers` - List supported brokers (no auth)
+
+### Gmail OAuth (Requires JWT)
+- `GET /gmail/connect` - Start OAuth flow
+- `GET /gmail/callback` - OAuth callback
+- `GET /gmail/status` - Check connection
+- `DELETE /gmail/disconnect` - Revoke access
+
+### Extract Holdings (Requires JWT)
+- `GET /extract/gmail/{broker}?pan=XXXXX` - Fetch from Gmail
+- `POST /extract/upload/{broker}` - Upload file
+
+Brokers: `groww`, `zerodha`, `angleone`, `dhan`, `mstock`
+
+---
+
+## 🧪 Testing with Postman
+
+### Import Collection
+1. Import `Gmail_Extractor_API.postman_collection.json`
+2. Set variable `jwt_token` to your JWT token
+3. Test endpoints starting with Health Check
+
+### Get JWT Token (Development)
+Use [jwt.io](https://jwt.io) with this payload:
+```json
+{
+  "user_id": "test-user-123",
+  "iat": 1616239022,
+  "exp": 9999999999
+}
+```
+Secret: Your `JWT_SECRET` from `.env`
+
+### Testing Flow
+1. Health Check → Verify API running
+2. Gmail Connect → Get OAuth URL
+3. Open URL in browser → Authorize
+4. Gmail Status → Verify connected
+5. Extract Holdings → Fetch broker data
+
+---
+
+## 🔧 Configuration
+
+### Docker Internal Networking
+When accessing your main backend from Docker container, use:
+- ✅ `host.docker.internal` (not localhost)
+- Example: `http://host.docker.internal:3000`
+
+### Google OAuth Redirect URIs
+Add to Google Cloud Console:
+- Dev: `http://localhost:8080/api/v1/gmail/callback`
+- Prod: `https://api.munish.org/am/gmail/callback`
+
+---
+
+## 📚 Documentation
+
+- [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) - Detailed Docker setup
+- [FLUTTER_INTEGRATION.md](FLUTTER_INTEGRATION.md) - Frontend integration guide
+- [GMAIL_OAUTH_SETUP.md](GMAIL_OAUTH_SETUP.md) - OAuth configuration
+
+---
+
+## 🛠️ Development
+
+### Run without Docker
 ```bash
 pip install -r requirements.txt
-# or using uv
-uv sync
+python app_api.py
 ```
 
-### 3. Set Up Gmail OAuth (Optional)
+### View Logs
+```bash
+docker-compose logs -f gmail-extractor
+```
 
-If you want to use Gmail integration, follow the [Gmail OAuth Setup Guide](GMAIL_OAUTH_SETUP.md).
+### Rebuild Container
+```bash
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
 
-After getting your credentials, create a `.env` file:
+---
+
+## 🐳 Docker Commands
 
 ```bash
-# Copy the example file
-cp .env.example .env
+# Start
+docker-compose up -d
 
-# Edit .env and add your credentials
-GOOGLE_CLIENT_ID=your-client-id-here
-GOOGLE_CLIENT_SECRET=your-client-secret-here
-SESSION_SECRET=your-random-secret-key
+# Stop
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# Restart
+docker-compose restart
+
+# Check status
+docker-compose ps
 ```
 
-### 4. Run the Application
+---
 
+## ⚠️ Troubleshooting
+
+**"JWT verification failed"**
+- Ensure `JWT_SECRET` matches main backend
+- Check token format: `Bearer <token>`
+
+**"CORS error"**
+- Verify `ALLOWED_ORIGINS` includes your Flutter app URL
+
+**"Gmail not connected"**
+- Run `/gmail/connect` first
+- Complete OAuth in browser
+
+**Container won't start**
 ```bash
-python app.py
+docker-compose logs gmail-extractor
 ```
 
-The application will be available at: `http://127.0.0.1:5000`
+---
 
-## Usage
-
-### Using Gmail Integration
-
-1. Navigate to the Gmail page: `http://127.0.0.1:5000/gmail`
-2. Click "Connect Gmail" and authorize the application
-3. Choose a broker page (e.g., Groww, Zerodha)
-4. Click "Fetch from Gmail" and enter your PAN number
-5. View and download your extracted holdings
-
-### Using Manual Upload
-
-1. Navigate to a broker page (e.g., `http://127.0.0.1:5000/groww`)
-2. Upload your statement file (PDF or Excel)
-3. Enter the password (usually your PAN number)
-4. Click "Extract Holdings"
-5. View and download your extracted holdings
-
-## Password Information
-
-- **Groww, Zerodha, MSTOCK**: PAN number (all uppercase)
-- **Dhan**: PAN number (all uppercase)
-- **AngleOne**: No password required for Excel files
-
-## Project Structure
+## 📦 Project Structure
 
 ```
-am-email-extractor/
-├── app.py                  # Main Flask application
+├── app_api.py              # Main API application
 ├── gmail_integration.py    # Gmail API integration
-├── brokers/               # Broker-specific extractors
-│   ├── groww/
-│   ├── zerodha/
-│   ├── angleone/
-│   ├── dhan/
-│   └── mstock/
-├── templates/             # HTML templates
-├── user_tokens/           # User OAuth tokens (git-ignored)
-├── .env                   # Environment variables (git-ignored)
-└── GMAIL_OAUTH_SETUP.md   # OAuth setup guide
+├── brokers/                # Broker-specific extractors
+├── Dockerfile              # Container definition
+├── docker-compose.yml      # Docker services
+└── Gmail_Extractor_API.postman_collection.json
 ```
 
-## Environment Variables
+---
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | For Gmail integration |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | For Gmail integration |
-| `SESSION_SECRET` | Flask session secret key | Recommended |
-| `REPLIT_DEV_DOMAIN` | Replit domain (auto-set on Replit) | For Replit deployment |
+## 🔐 Security Notes
 
-## Security Notes
+- Never commit `.env` file
+- Keep OAuth credentials confidential
+- JWT_SECRET must be shared securely with main backend
+- Use HTTPS in production
 
-⚠️ **Important**:
-- Never commit your `.env` file to version control
-- Keep your OAuth credentials confidential
-- The `.env` file is already in `.gitignore`
-- User tokens are stored locally and git-ignored
+---
 
-## Troubleshooting
+## 📞 Support
 
-### "Gmail credentials not found in environment variables"
-
-- Make sure you've created a `.env` file with valid credentials
-- Follow the [Gmail OAuth Setup Guide](GMAIL_OAUTH_SETUP.md)
-- Restart the application after setting credentials
-
-### Password-protected files not extracting
-
-- Ensure you're using the correct password (usually PAN number in uppercase)
-- For Groww/Zerodha statements, try your PAN number
-- AngleOne Excel files typically don't require a password
-
-### OAuth redirect URI mismatch
-
-- Verify redirect URIs in Google Cloud Console match:
-  - `http://localhost:5000/gmail/callback`
-  - `http://127.0.0.1:5000/gmail/callback`
-
-## Development
-
-### Debug Mode
-
-The application runs in debug mode by default with auto-reload enabled.
-
-### Adding a New Broker
-
-1. Create a new directory in `brokers/`
-2. Implement `extract_holdings(file_path, password)` function
-3. Add broker patterns to `gmail_integration.py`
-4. Create HTML template in `templates/`
-5. Add route in `app.py`
-
-## License
-
-[Add your license here]
-
-## Contributing
-
-[Add contribution guidelines here]
+For detailed guides, see:
+- Docker deployment: [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)
+- Flutter integration: [FLUTTER_INTEGRATION.md](FLUTTER_INTEGRATION.md)
+- OAuth setup: [GMAIL_OAUTH_SETUP.md](GMAIL_OAUTH_SETUP.md)
