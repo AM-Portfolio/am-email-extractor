@@ -10,6 +10,8 @@ from functools import wraps
 import tempfile
 from dotenv import load_dotenv
 import gmail_integration
+import database
+import kafka_producer
 
 # Load environment variables
 load_dotenv()
@@ -194,13 +196,34 @@ def gmail_callback():
         os.remove(state_file)
         
         # Get credentials and exchange code for token
+        import logging
+        import os
+        client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
+        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+        
+        logging.info(f"Callback received for user_id: {user_id}")
+        logging.info(f"Client ID: {client_id[:10]}...{client_id[-5:]}")
+        logging.info(f"Client Secret length: {len(client_secret)}")
+        logging.info(f"Client Secret: {client_secret[:5]}...{client_secret[-2:]}")
+        
         creds, flow, _ = gmail_integration.get_credentials(user_id)
         
         if not flow:
+            logging.error("Failed to initialize OAuth flow in callback")
             return jsonify({'error': 'Failed to initialize OAuth flow'}), 500
         
+        # Log the redirect URI being used (must match exactly)
+        logging.info(f"Using redirect_uri: {flow.redirect_uri}")
+        
         # Fetch token
-        flow.fetch_token(code=code)
+        try:
+            flow.fetch_token(code=code)
+            logging.info("Successfully fetched token")
+        except Exception as e:
+            logging.error(f"Error fetching token: {str(e)}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return jsonify({'error': f'Auth failed: {str(e)}'}), 401
         
         # Save credentials
         import pickle
@@ -311,6 +334,24 @@ def extract_from_gmail(broker):
         # Import and run extractor
         holdings = extract_broker_holdings(broker, attachment_path, password)
         
+        # Save to MongoDB
+        metadata = {
+            'email_subject': result['email']['subject'],
+            'email_date': result['email']['date'],
+            'filename': result['attachment']['filename'],
+            'source': 'gmail'
+        }
+        
+        doc_id = database.get_db().save_holdings(user_id, broker, holdings, metadata)
+        
+        # Send notification to Kafka
+        kafka_producer.get_producer().send_update_event(
+            user_id=user_id,
+            status="SUCCESS",
+            db_id=doc_id,
+            broker=broker
+        )
+        
         # Clean up
         cleanup_temp_files(attachment_path, temp_dir)
         
@@ -319,11 +360,8 @@ def extract_from_gmail(broker):
             'broker': broker,
             'count': len(holdings),
             'holdings': holdings,
-            'metadata': {
-                'email_subject': result['email']['subject'],
-                'email_date': result['email']['date'],
-                'filename': result['attachment']['filename']
-            }
+            'metadata': metadata,
+            'db_id': doc_id
         })
         
     except Exception as e:
@@ -364,6 +402,21 @@ def extract_from_upload(broker):
             pwd = password if password else None
             holdings = extract_broker_holdings(broker, tmp_path, pwd)
             
+            # Save to MongoDB
+            metadata = {
+                'source': 'upload',
+                'filename': filename
+            }
+            doc_id = database.get_db().save_holdings(request.user_id, broker, holdings, metadata)
+            
+            # Send notification to Kafka
+            kafka_producer.get_producer().send_update_event(
+                user_id=request.user_id,
+                status="SUCCESS",
+                db_id=doc_id,
+                broker=broker
+            )
+            
             # Clean up
             os.unlink(tmp_path)
             
@@ -371,7 +424,8 @@ def extract_from_upload(broker):
                 'success': True,
                 'broker': broker,
                 'count': len(holdings),
-                'holdings': holdings
+                'holdings': holdings,
+                'db_id': doc_id
             })
             
         except Exception as e:

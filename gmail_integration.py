@@ -83,16 +83,23 @@ def get_credentials(user_id=None):
             if not client_id or not client_secret:
                 raise Exception("Gmail credentials not found in environment variables")
             
-            # Get the Replit domain
-            replit_domain = os.environ.get('REPLIT_DEV_DOMAIN', '')
-            if replit_domain:
+            # Check for explicitly configured redirect URI
+            configured_redirect = os.environ.get('GMAIL_REDIRECT_URI')
+            
+            if configured_redirect:
+                redirect_uri = configured_redirect
+            elif os.environ.get('REPLIT_DEV_DOMAIN'):
+                replit_domain = os.environ.get('REPLIT_DEV_DOMAIN')
                 redirect_uri = f'https://{replit_domain}/gmail/callback'
             else:
-                redirect_uri = 'http://localhost:5000/gmail/callback'
+                # Fallback to localhost on configured port (default 8080)
+                port = os.environ.get('PORT', '8080')
+                api_version = os.environ.get('API_VERSION', 'v1')
+                redirect_uri = f'http://localhost:{port}/api/{api_version}/gmail/callback'
             
             # For web flow, we need redirect URI
             client_config = {
-                "installed": {
+                "web": {
                     "client_id": client_id,
                     "client_secret": client_secret,
                     "redirect_uris": [redirect_uri],
