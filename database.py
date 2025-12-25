@@ -22,7 +22,7 @@ class Database:
     
     def get_db(self):
         """Get database instance, connecting if necessary"""
-        if not self.db:
+        if self.db is None:
             self.connect()
         return self.db
 

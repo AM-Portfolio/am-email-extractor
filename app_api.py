@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import gmail_integration
 import database
 import kafka_producer
+import logging
 
 # Load environment variables
 load_dotenv()
@@ -196,33 +197,18 @@ def gmail_callback():
         os.remove(state_file)
         
         # Get credentials and exchange code for token
-        import logging
-        import os
-        client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
-        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
-        
-        logging.info(f"Callback received for user_id: {user_id}")
-        logging.info(f"Client ID: {client_id[:10]}...{client_id[-5:]}")
-        logging.info(f"Client Secret length: {len(client_secret)}")
-        logging.info(f"Client Secret: {client_secret[:5]}...{client_secret[-2:]}")
-        
         creds, flow, _ = gmail_integration.get_credentials(user_id)
         
         if not flow:
-            logging.error("Failed to initialize OAuth flow in callback")
             return jsonify({'error': 'Failed to initialize OAuth flow'}), 500
-        
-        # Log the redirect URI being used (must match exactly)
-        logging.info(f"Using redirect_uri: {flow.redirect_uri}")
         
         # Fetch token
         try:
+            # We must pass the same redirect_uri to fetch_token if it's not handled by the flow
             flow.fetch_token(code=code)
-            logging.info("Successfully fetched token")
         except Exception as e:
-            logging.error(f"Error fetching token: {str(e)}")
             import traceback
-            logging.error(traceback.format_exc())
+            traceback.print_exc()
             return jsonify({'error': f'Auth failed: {str(e)}'}), 401
         
         # Save credentials
@@ -305,25 +291,36 @@ def extract_from_gmail(broker):
         # Get PAN from query parameter
         pan_number = request.args.get('pan', '').strip().upper()
         
+        # Debug Log
+        import sys
+        sys.stderr.write(f"DEBUG: Starting extraction for broker: {broker}\n")
+        
         if not pan_number and broker != 'angleone':
+            sys.stderr.write("DEBUG: Missing PAN number\n")
             return jsonify({'error': 'PAN number is required'}), 400
         
         # Get Gmail service
         user_id = request.user_id
+        sys.stderr.write(f"DEBUG: Getting Gmail service for user: {user_id}\n")
         service, _, _ = gmail_integration.get_gmail_service(user_id)
         
         if not service:
+            sys.stderr.write("DEBUG: Gmail not connected\n")
             return jsonify({'error': 'Gmail not connected. Please connect Gmail first.'}), 401
         
         # Fetch latest statement
+        sys.stderr.write(f"DEBUG: Fetching latest email from {broker}...\n")
         result = gmail_integration.get_latest_statement(service, broker)
         
         if not result:
+            sys.stderr.write(f"DEBUG: No emails found for {broker}\n")
             return jsonify({'error': f'No recent emails found from {broker.upper()}'}), 404
         
         # Extract holdings
         attachment_path = result['attachment']['path']
         temp_dir = result.get('temp_dir')
+        sys.stderr.write(f"DEBUG: Email found. Subject: {result['email']['subject']}\n")
+        sys.stderr.write(f"DEBUG: Attachment saved to: {attachment_path}\n")
         
         # Determine password
         if broker == 'angleone':
@@ -332,7 +329,9 @@ def extract_from_gmail(broker):
             password = pan_number
         
         # Import and run extractor
+        sys.stderr.write(f"DEBUG: Extracting holdings with password length: {len(password) if password else 0}\n")
         holdings = extract_broker_holdings(broker, attachment_path, password)
+        sys.stderr.write(f"DEBUG: Extracted {len(holdings)} holdings\n")
         
         # Save to MongoDB
         metadata = {
@@ -342,15 +341,36 @@ def extract_from_gmail(broker):
             'source': 'gmail'
         }
         
+        sys.stderr.write("DEBUG: Saving to MongoDB...\n")
         doc_id = database.get_db().save_holdings(user_id, broker, holdings, metadata)
+        sys.stderr.write(f"DEBUG: Saved to MongoDB. Doc ID: {doc_id}\n")
+        
+        # Prepare Kafka Payload
+        import uuid
+        process_id = str(uuid.uuid4())
+        
+        equities = []
+        mutual_funds = []
+        
+        for holding in holdings:
+            # Simple ISIN check: INF usually Mutual Fund, INE usually Equity
+            isin = holding.get('isin_code', '')
+            if isin.startswith('INF'):
+                mutual_funds.append(holding)
+            else:
+                equities.append(holding)
         
         # Send notification to Kafka
+        sys.stderr.write("DEBUG: Sending Kafka event...\n")
         kafka_producer.get_producer().send_update_event(
+            process_id=process_id,
             user_id=user_id,
-            status="SUCCESS",
-            db_id=doc_id,
-            broker=broker
+            broker=broker,
+            portfolio_id=doc_id,
+            equities=equities,
+            mutual_funds=mutual_funds
         )
+        sys.stderr.write("DEBUG: Kafka event sent.\n")
         
         # Clean up
         cleanup_temp_files(attachment_path, temp_dir)
@@ -365,7 +385,9 @@ def extract_from_gmail(broker):
         })
         
     except Exception as e:
+        import sys
         import traceback
+        sys.stderr.write(f"ERROR CRASH: {str(e)}\n")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 

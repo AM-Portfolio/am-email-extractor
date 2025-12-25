@@ -3,7 +3,7 @@ import pandas as pd
 import re
 import json
 from pdfminer.pdfdocument import PDFPasswordIncorrect
-from pdfplumber.utils.exceptions import PdfminerException
+# PdfminerException moved in recent pdfplumber versions, catching general exception instead
 
 def extract_holdings(file_path, password=None):
     """
@@ -79,9 +79,7 @@ def extract_holdings(file_path, password=None):
         
         return holdings
     
-    except (PDFPasswordIncorrect, PdfminerException) as e:
-        raise Exception("Incorrect password. Please enter the correct password to unlock the PDF.")
-    except Exception as e:
+    except (PDFPasswordIncorrect, Exception) as e:
         if "password" in str(e).lower():
             raise Exception("Incorrect password. Please enter the correct password to unlock the PDF.")
         raise Exception(f"Error extracting holdings: {str(e)}")

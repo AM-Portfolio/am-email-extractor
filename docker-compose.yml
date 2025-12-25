@@ -39,7 +39,7 @@ services:
       start_period: 40s
     depends_on:
       - kafka
-      - mongo
+      - mongodb
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -65,13 +65,20 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-  mongo:
-    image: mongo:latest
-    container_name: mongodb
+  mongodb:
+    image: mongo:7.0
+    container_name: am_parser_mongodb
+    restart: unless-stopped
     ports:
       - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: portfolio_db
     volumes:
       - mongo-data:/data/db
+    networks:
+      - app-network
 
 volumes:
   mongo-data:
